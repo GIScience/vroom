@@ -5,7 +5,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -16,20 +16,21 @@ All rights reserved (see LICENSE).
 namespace vroom {
 
 struct Step {
-  const STEP_TYPE type;
+  const STEP_TYPE step_type;
+  const JOB_TYPE job_type;
   const Location location;
   const Id job;
   const Duration service;
-  const Amount amount;
+  const Amount load;
 
   Duration arrival;
   Duration duration;
   Duration waiting_time;
   Distance distance;
 
-  Step(STEP_TYPE type, Location location);
+  Step(STEP_TYPE type, Location location, const Amount& load);
 
-  Step(const Job& job);
+  Step(const Job& job, const Amount& load);
 };
 
 } // namespace vroom

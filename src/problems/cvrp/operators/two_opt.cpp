@@ -2,7 +2,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -33,6 +33,9 @@ TwoOpt::TwoOpt(const Input& input,
   assert(t_route.size() >= 1);
   assert(s_rank < s_route.size());
   assert(t_rank < t_route.size());
+
+  assert(_sol_state.bwd_skill_rank[s_vehicle][t_vehicle] <= s_rank + 1);
+  assert(_sol_state.bwd_skill_rank[t_vehicle][s_vehicle] <= t_rank + 1);
 }
 
 void TwoOpt::compute_gain() {
@@ -86,16 +89,42 @@ void TwoOpt::compute_gain() {
 }
 
 bool TwoOpt::is_valid() {
-  bool valid = (_sol_state.bwd_skill_rank[s_vehicle][t_vehicle] <= s_rank + 1);
+  auto t_delivery = target.delivery_in_range(t_rank + 1, t_route.size());
+  auto t_pickup = target.pickup_in_range(t_rank + 1, t_route.size());
 
-  valid &= (_sol_state.bwd_skill_rank[t_vehicle][s_vehicle] <= t_rank + 1);
+  bool valid = source.is_valid_addition_for_capacity_margins(_input,
+                                                             t_pickup,
+                                                             t_delivery,
+                                                             s_rank + 1,
+                                                             s_route.size());
 
-  valid &= (_sol_state.fwd_amounts[s_vehicle][s_rank] +
-              _sol_state.bwd_amounts[t_vehicle][t_rank] <=
-            _input.vehicles[s_vehicle].capacity);
-  valid &= (_sol_state.fwd_amounts[t_vehicle][t_rank] +
-              _sol_state.bwd_amounts[s_vehicle][s_rank] <=
-            _input.vehicles[t_vehicle].capacity);
+  auto s_delivery = source.delivery_in_range(s_rank + 1, s_route.size());
+  auto s_pickup = source.pickup_in_range(s_rank + 1, s_route.size());
+
+  valid =
+    valid && target.is_valid_addition_for_capacity_margins(_input,
+                                                           s_pickup,
+                                                           s_delivery,
+                                                           t_rank + 1,
+                                                           t_route.size());
+
+  valid =
+    valid && source.is_valid_addition_for_capacity_inclusion(_input,
+                                                             t_delivery,
+                                                             t_route.begin() +
+                                                               t_rank + 1,
+                                                             t_route.end(),
+                                                             s_rank + 1,
+                                                             s_route.size());
+
+  valid =
+    valid && target.is_valid_addition_for_capacity_inclusion(_input,
+                                                             s_delivery,
+                                                             s_route.begin() +
+                                                               s_rank + 1,
+                                                             s_route.end(),
+                                                             t_rank + 1,
+                                                             t_route.size());
 
   return valid;
 }
@@ -111,6 +140,9 @@ void TwoOpt::apply() {
                  t_route.begin() + t_rank + 1 + nb_source,
                  t_route.end());
   t_route.erase(t_route.begin() + t_rank + 1 + nb_source, t_route.end());
+
+  source.update_amounts(_input);
+  target.update_amounts(_input);
 }
 
 std::vector<Index> TwoOpt::addition_candidates() const {

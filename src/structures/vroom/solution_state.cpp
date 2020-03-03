@@ -2,12 +2,13 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
 
 #include <numeric>
+#include <unordered_map>
 
 #include "structures/vroom/solution_state.h"
 #include "utils/helpers.h"
@@ -19,9 +20,6 @@ SolutionState::SolutionState(const Input& input)
   : _input(input),
     _m(_input.get_matrix()),
     _nb_vehicles(_input.vehicles.size()),
-    _empty_amount(_input.amount_size()),
-    fwd_amounts(_nb_vehicles),
-    bwd_amounts(_nb_vehicles),
     fwd_costs(_nb_vehicles),
     bwd_costs(_nb_vehicles),
     fwd_skill_rank(_nb_vehicles, std::vector<Index>(_nb_vehicles)),
@@ -32,6 +30,9 @@ SolutionState::SolutionState(const Input& input)
     edge_costs_around_edge(_nb_vehicles),
     edge_gains(_nb_vehicles),
     edge_candidates(_nb_vehicles),
+    pd_gains(_nb_vehicles),
+    matching_delivery_rank(_nb_vehicles),
+    matching_pickup_rank(_nb_vehicles),
     nearest_job_rank_in_routes_from(_nb_vehicles,
                                     std::vector<std::vector<Index>>(
                                       _nb_vehicles)),
@@ -42,11 +43,12 @@ SolutionState::SolutionState(const Input& input)
 }
 
 void SolutionState::setup(const std::vector<Index>& r, Index v) {
-  update_amounts(r, v);
   update_costs(r, v);
   update_skills(r, v);
   set_node_gains(r, v);
   set_edge_gains(r, v);
+  set_pd_matching_ranks(r, v);
+  set_pd_gains(r, v);
 #ifndef NDEBUG
   update_route_cost(r, v);
 #endif
@@ -86,25 +88,6 @@ void SolutionState::setup(const TWSolution& tw_sol) {
       unassigned.erase(i);
     }
   }
-}
-
-void SolutionState::update_amounts(const std::vector<Index>& route, Index v) {
-  fwd_amounts[v] = std::vector<Amount>(route.size());
-  bwd_amounts[v] = std::vector<Amount>(route.size());
-  Amount current_amount(_input.amount_size());
-
-  for (std::size_t i = 0; i < route.size(); ++i) {
-    current_amount += _input.jobs[route[i]].amount;
-    fwd_amounts[v][i] = current_amount;
-  }
-
-  std::transform(fwd_amounts[v].cbegin(),
-                 fwd_amounts[v].cend(),
-                 bwd_amounts[v].begin(),
-                 [&](const auto& a) {
-                   const auto& total_amount = fwd_amounts[v].back();
-                   return total_amount - a;
-                 });
 }
 
 void SolutionState::update_costs(const std::vector<Index>& route, Index v) {
@@ -391,13 +374,118 @@ void SolutionState::set_edge_gains(const std::vector<Index>& route, Index v) {
   }
 }
 
+void SolutionState::set_pd_gains(const std::vector<Index>& route, Index v) {
+  // Expects to have valid values in node_gains, so should be run
+  // after set_node_gains. Expects to have valid values in
+  // matching_delivery_rank, so should be run after
+  // set_pd_matching_ranks.
+  pd_gains[v] = std::vector<Gain>(route.size());
+
+  for (std::size_t pickup_rank = 0; pickup_rank < route.size(); ++pickup_rank) {
+    if (_input.jobs[route[pickup_rank]].type != JOB_TYPE::PICKUP) {
+      continue;
+    }
+    Index pickup_index = _input.jobs[route[pickup_rank]].index();
+    unsigned delivery_rank = matching_delivery_rank[v][pickup_rank];
+    Index delivery_index = _input.jobs[route[delivery_rank]].index();
+
+    if (pickup_rank + 1 == delivery_rank) {
+      // Pickup and delivery in a row.
+      Gain previous_cost = 0;
+      Gain next_cost = 0;
+      Gain new_edge_cost = 0;
+      Index p_index;
+      Index n_index;
+
+      // Compute cost for step before pickup.
+      bool has_previous_step = false;
+      if (pickup_rank > 0) {
+        has_previous_step = true;
+        p_index = _input.jobs[route[pickup_rank - 1]].index();
+        previous_cost = _m[p_index][pickup_index];
+      } else {
+        if (_input.vehicles[v].has_start()) {
+          has_previous_step = true;
+          p_index = _input.vehicles[v].start.get().index();
+          previous_cost = _m[p_index][pickup_index];
+        }
+      }
+
+      // Compute cost for step after delivery.
+      bool has_next_step = false;
+      if (delivery_rank < route.size() - 1) {
+        has_next_step = true;
+        n_index = _input.jobs[route[delivery_rank + 1]].index();
+        next_cost = _m[delivery_index][n_index];
+      } else {
+        if (_input.vehicles[v].has_end()) {
+          has_next_step = true;
+          n_index = _input.vehicles[v].end.get().index();
+          next_cost = _m[delivery_index][n_index];
+        }
+      }
+
+      if (has_previous_step and has_next_step and (route.size() > 2)) {
+        // No new edge with an open trip or if removing P&D creates an
+        // empty route.
+        new_edge_cost = _m[p_index][n_index];
+      }
+
+      pd_gains[v][pickup_rank] = previous_cost +
+                                 _m[pickup_index][delivery_index] + next_cost -
+                                 new_edge_cost;
+    } else {
+      // Simply add both gains as neighbouring edges are disjoint.
+      pd_gains[v][pickup_rank] =
+        node_gains[v][pickup_rank] + node_gains[v][delivery_rank];
+    }
+  }
+}
+
+void SolutionState::set_pd_matching_ranks(const std::vector<Index>& route,
+                                          Index v) {
+  matching_delivery_rank[v] = std::vector<Index>(route.size());
+  matching_pickup_rank[v] = std::vector<Index>(route.size());
+
+  std::unordered_map<Index, Index> pickup_route_rank_to_input_rank;
+  std::unordered_map<Index, Index> delivery_input_rank_to_route_rank;
+
+  for (std::size_t i = 0; i < route.size(); ++i) {
+    switch (_input.jobs[route[i]].type) {
+    case JOB_TYPE::SINGLE:
+      break;
+    case JOB_TYPE::PICKUP:
+      pickup_route_rank_to_input_rank.insert({i, route[i]});
+      break;
+    case JOB_TYPE::DELIVERY:
+      delivery_input_rank_to_route_rank.insert({route[i], i});
+      break;
+    }
+  }
+
+  assert(pickup_route_rank_to_input_rank.size() ==
+         delivery_input_rank_to_route_rank.size());
+  for (const auto& pair : pickup_route_rank_to_input_rank) {
+    // Relies of the fact that associated pickup and delivery are
+    // stored sequentially in input jobs vector.
+    auto pickup_route_rank = pair.first;
+    auto delivery_input_rank = pair.second + 1;
+    auto search = delivery_input_rank_to_route_rank.find(delivery_input_rank);
+    assert(search != delivery_input_rank_to_route_rank.end());
+    auto delivery_route_rank = search->second;
+
+    matching_delivery_rank[v][pickup_route_rank] = delivery_route_rank;
+    matching_pickup_rank[v][delivery_route_rank] = pickup_route_rank;
+  }
+}
+
 void SolutionState::update_nearest_job_rank_in_routes(
   const std::vector<Index>& route_1,
   const std::vector<Index>& route_2,
   Index v1,
   Index v2) {
-  nearest_job_rank_in_routes_from[v1][v2] = std::vector<Index>(route_1.size());
-  nearest_job_rank_in_routes_to[v1][v2] = std::vector<Index>(route_1.size());
+  nearest_job_rank_in_routes_from[v1][v2].assign(route_1.size(), 0);
+  nearest_job_rank_in_routes_to[v1][v2].assign(route_1.size(), 0);
 
   for (std::size_t r1 = 0; r1 < route_1.size(); ++r1) {
     Index index_r1 = _input.jobs[route_1[r1]].index();
@@ -427,14 +515,6 @@ void SolutionState::update_nearest_job_rank_in_routes(
 void SolutionState::update_route_cost(const std::vector<Index>& route,
                                       Index v) {
   route_costs[v] = route_cost_for_vehicle(_input, v, route);
-}
-
-const Amount& SolutionState::total_amount(Index v) const {
-  if (!fwd_amounts[v].empty()) {
-    return fwd_amounts[v].back();
-  } else {
-    return _empty_amount;
-  }
 }
 
 } // namespace utils

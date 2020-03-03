@@ -2,7 +2,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -20,13 +20,18 @@ All rights reserved (see LICENSE).
 
 namespace vroom {
 
-Input::Input()
+Input::Input(unsigned amount_size)
   : _start_loading(std::chrono::high_resolution_clock::now()),
     _no_addition_yet(true),
     _has_TW(false),
     _homogeneous_locations(true),
     _geometry(false),
-    _all_locations_have_coords(true) {
+    _has_jobs(false),
+    _has_shipments(false),
+    _has_custom_matrix(false),
+    _all_locations_have_coords(true),
+    _amount_size(amount_size),
+    _zero(_amount_size) {
 }
 
 void Input::set_geometry(bool geometry) {
@@ -38,22 +43,31 @@ void Input::set_routing(
   _routing_wrapper = std::move(routing_wrapper);
 }
 
-void Input::add_job(const Job& job) {
-  jobs.push_back(job);
+void Input::check_job(Job& job) {
+  // Ensure delivery size consistency.
+  const auto& delivery_size = job.delivery.size();
+  if (delivery_size != _amount_size) {
+    throw Exception(ERROR::INPUT,
+                    "Inconsistent delivery length: " +
+                      std::to_string(delivery_size) + " instead of " +
+                      std::to_string(_amount_size) + '.');
+  }
 
-  auto& current_job = jobs.back();
-
-  // Ensure amount size consistency.
-  this->check_amount_size(current_job.amount.size());
-
-  this->store_amount_lower_bound(current_job.amount);
+  // Ensure pickup size consistency.
+  const auto& pickup_size = job.pickup.size();
+  if (pickup_size != _amount_size) {
+    throw Exception(ERROR::INPUT,
+                    "Inconsistent pickup length: " +
+                      std::to_string(pickup_size) + " instead of " +
+                      std::to_string(_amount_size) + '.');
+  }
 
   // Ensure that skills are either always or never provided.
   if (_no_addition_yet) {
-    _has_skills = !current_job.skills.empty();
+    _has_skills = !job.skills.empty();
     _no_addition_yet = false;
   } else {
-    if (_has_skills != !current_job.skills.empty()) {
+    if (_has_skills != !job.skills.empty()) {
       throw Exception(ERROR::INPUT, "Missing skills.");
     }
   }
@@ -61,24 +75,64 @@ void Input::add_job(const Job& job) {
   // Check for time-windows.
   _has_TW |= (!(job.tws.size() == 1) or !job.tws[0].is_default());
 
-  if (!current_job.location.user_index()) {
+  if (!job.location.user_index()) {
     // Index of this job in the matrix was not specified upon job
     // creation.
-    auto search = _locations_to_index.find(current_job.location);
+    auto search = _locations_to_index.find(job.location);
     if (search != _locations_to_index.end()) {
       // Using stored index for existing location.
-      current_job.location.set_index(search->second);
+      job.location.set_index(search->second);
     } else {
       // Append new location and store corresponding index.
       auto new_index = _locations.size();
-      current_job.location.set_index(new_index);
-      _locations.push_back(current_job.location);
-      _locations_to_index.insert(
-        std::make_pair(current_job.location, new_index));
+      job.location.set_index(new_index);
+      _locations.push_back(job.location);
+      _locations_to_index.insert(std::make_pair(job.location, new_index));
     }
   }
-  _matrix_used_index.insert(current_job.index());
-  _all_locations_have_coords &= current_job.location.has_coordinates();
+
+  _matrix_used_index.insert(job.index());
+  _all_locations_have_coords =
+    _all_locations_have_coords && job.location.has_coordinates();
+}
+
+void Input::add_job(const Job& job) {
+  if (job.type != JOB_TYPE::SINGLE) {
+    throw Exception(ERROR::INPUT, "Wrong job type.");
+  }
+  jobs.push_back(job);
+  check_job(jobs.back());
+  _has_jobs = true;
+}
+
+void Input::add_shipment(const Job& pickup, const Job& delivery) {
+  if (pickup.priority != delivery.priority) {
+    throw Exception(ERROR::INPUT, "Inconsistent shipment priority.");
+  }
+  if (!(pickup.pickup == delivery.delivery)) {
+    throw Exception(ERROR::INPUT, "Inconsistent shipment amount.");
+  }
+  if (pickup.skills.size() != delivery.skills.size()) {
+    throw Exception(ERROR::INPUT, "Inconsistent shipment skills.");
+  }
+  for (const auto s : pickup.skills) {
+    if (delivery.skills.find(s) == delivery.skills.end()) {
+      throw Exception(ERROR::INPUT, "Inconsistent shipment skills.");
+    }
+  }
+
+  if (pickup.type != JOB_TYPE::PICKUP) {
+    throw Exception(ERROR::INPUT, "Wrong pickup type.");
+  }
+  jobs.push_back(pickup);
+  check_job(jobs.back());
+
+  if (delivery.type != JOB_TYPE::DELIVERY) {
+    throw Exception(ERROR::INPUT, "Wrong delivery type.");
+  }
+  jobs.push_back(delivery);
+  check_job(jobs.back());
+  _has_shipments = true;
 }
 
 void Input::add_vehicle(const Vehicle& vehicle) {
@@ -87,7 +141,13 @@ void Input::add_vehicle(const Vehicle& vehicle) {
   auto& current_v = vehicles.back();
 
   // Ensure amount size consistency.
-  this->check_amount_size(current_v.capacity.size());
+  const auto& vehicle_amount_size = current_v.capacity.size();
+  if (vehicle_amount_size != _amount_size) {
+    throw Exception(ERROR::INPUT,
+                    "Inconsistent capacity length: " +
+                      std::to_string(vehicle_amount_size) + " instead of " +
+                      std::to_string(_amount_size) + '.');
+  }
 
   // Ensure that skills are either always or never provided.
   if (_no_addition_yet) {
@@ -126,7 +186,8 @@ void Input::add_vehicle(const Vehicle& vehicle) {
     }
 
     _matrix_used_index.insert(start_loc.index());
-    _all_locations_have_coords &= start_loc.has_coordinates();
+    _all_locations_have_coords =
+      _all_locations_have_coords && start_loc.has_coordinates();
   }
 
   if (has_end) {
@@ -150,72 +211,41 @@ void Input::add_vehicle(const Vehicle& vehicle) {
     }
 
     _matrix_used_index.insert(end_loc.index());
-    _all_locations_have_coords &= end_loc.has_coordinates();
+    _all_locations_have_coords =
+      _all_locations_have_coords && end_loc.has_coordinates();
   }
 
   // Check for homogeneous locations among vehicles.
   if (vehicles.size() > 1) {
-    _homogeneous_locations &=
+    _homogeneous_locations =
+      _homogeneous_locations &&
       vehicles.front().has_same_locations(vehicles.back());
   }
 }
 
-void Input::store_amount_lower_bound(const Amount& amount) {
-  if (_amount_lower_bound.empty()) {
-    // Create on first call.
-    _amount_lower_bound = amount;
-  } else {
-    for (std::size_t i = 0; i < _amount_size; ++i) {
-      _amount_lower_bound[i] = std::min(_amount_lower_bound[i], amount[i]);
-    }
-  }
-}
-
-void Input::check_amount_size(unsigned size) {
-  if (_locations.empty()) {
-    // Updating real value on first call.
-    _amount_size = size;
-  } else {
-    // Checking consistency for amount/capacity input lengths.
-    if (size != _amount_size) {
-      throw Exception(ERROR::INPUT,
-                      "Inconsistent amount/capacity lengths: " +
-                        std::to_string(size) + " and " +
-                        std::to_string(_amount_size) + '.');
-    }
-  }
-}
-
 void Input::set_matrix(Matrix<Cost>&& m) {
+  _has_custom_matrix = true;
   _matrix = std::move(m);
-}
-
-unsigned Input::amount_size() const {
-  return _amount_size;
-}
-
-Amount Input::get_amount_lower_bound() const {
-  return _amount_lower_bound;
 }
 
 bool Input::has_skills() const {
   return _has_skills;
 }
 
+bool Input::has_jobs() const {
+  return _has_jobs;
+}
+
+bool Input::has_shipments() const {
+  return _has_shipments;
+}
+
 bool Input::has_homogeneous_locations() const {
   return _homogeneous_locations;
 }
 
-bool Input::vehicle_ok_with_job(Index v_index, Index j_index) const {
-  return _vehicle_to_job_compatibility[v_index][j_index];
-}
-
 bool Input::vehicle_ok_with_vehicle(Index v1_index, Index v2_index) const {
   return _vehicle_to_vehicle_compatibility[v1_index][v2_index];
-}
-
-const Matrix<Cost>& Input::get_matrix() const {
-  return _matrix;
 }
 
 Matrix<Cost> Input::get_sub_matrix(const std::vector<Index>& indices) const {
@@ -270,9 +300,9 @@ void Input::check_cost_bound() const {
 
 void Input::set_compatibility() {
   // Default to no restriction when no skills are provided.
-  _vehicle_to_job_compatibility =
-    std::vector<std::vector<bool>>(vehicles.size(),
-                                   std::vector<bool>(jobs.size(), true));
+  _vehicle_to_job_compatibility = std::vector<
+    std::vector<unsigned char>>(vehicles.size(),
+                                std::vector<unsigned char>(jobs.size(), true));
   if (_has_skills) {
     for (std::size_t v = 0; v < vehicles.size(); ++v) {
       const auto& v_skills = vehicles[v].skills;
@@ -282,9 +312,8 @@ void Input::set_compatibility() {
         bool is_compatible = true;
         assert(!jobs[j].skills.empty());
         for (const auto& s : jobs[j].skills) {
-          auto search = v_skills.find(s);
-          is_compatible &= (search != v_skills.end());
-          if (!is_compatible) {
+          if (v_skills.find(s) == v_skills.end()) {
+            is_compatible = false;
             break;
           }
         }
@@ -293,20 +322,44 @@ void Input::set_compatibility() {
     }
   }
 
-  // Derive potential extra incompatibilities : jobs with amount that
-  // does not fit into vehicle or that cannot be added to an empty
-  // route for vehicle based on the timing constraints (when they
-  // apply).
+  // Derive potential extra incompatibilities : jobs or shipments with
+  // amount that does not fit into vehicle or that cannot be added to
+  // an empty route for vehicle based on the timing constraints (when
+  // they apply).
   for (std::size_t v = 0; v < vehicles.size(); ++v) {
     TWRoute empty_route(*this, v);
-    for (std::size_t j = 0; j < jobs.size(); ++j) {
+    for (Index j = 0; j < jobs.size(); ++j) {
       if (_vehicle_to_job_compatibility[v][j]) {
-        auto is_compatible = (jobs[j].amount <= vehicles[v].capacity);
-        if (_has_TW) {
-          is_compatible &= empty_route.is_valid_addition_for_tw(*this, j, 0);
+        bool is_compatible =
+          empty_route.is_valid_addition_for_capacity(*this,
+                                                     jobs[j].pickup,
+                                                     jobs[j].delivery,
+                                                     0);
+
+        bool is_shipment_pickup = (jobs[j].type == JOB_TYPE::PICKUP);
+
+        if (is_compatible and _has_TW) {
+          if (jobs[j].type == JOB_TYPE::SINGLE) {
+            is_compatible = is_compatible &&
+                            empty_route.is_valid_addition_for_tw(*this, j, 0);
+          } else {
+            assert(is_shipment_pickup);
+            std::vector<Index> p_d({j, static_cast<Index>(j + 1)});
+            is_compatible =
+              is_compatible && empty_route.is_valid_addition_for_tw(*this,
+                                                                    p_d.begin(),
+                                                                    p_d.end(),
+                                                                    0,
+                                                                    0);
+          }
         }
 
         _vehicle_to_job_compatibility[v][j] = is_compatible;
+        if (is_shipment_pickup) {
+          // Skipping matching delivery which is next in line in jobs.
+          _vehicle_to_job_compatibility[v][j + 1] = is_compatible;
+          ++j;
+        }
       }
     }
   }
@@ -346,10 +399,13 @@ Solution Input::solve(unsigned exploration_level,
                     "Route geometry request with missing coordinates.");
   }
 
-  if (_matrix.size() < 2) {
-    // Call to routing engine if matrix not already provided.
-    assert(_routing_wrapper);
-    _matrix = _routing_wrapper->get_matrix(_locations);
+  if (!_has_custom_matrix) {
+    if (_locations.size() == 1) {
+      _matrix = Matrix<Cost>({{0}});
+    } else {
+      assert(_routing_wrapper);
+      _matrix = _routing_wrapper->get_matrix(_locations);
+    }
   }
 
   // Check for potential overflow in solution cost.

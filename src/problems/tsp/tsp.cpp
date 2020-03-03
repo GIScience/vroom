@@ -2,7 +2,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -107,7 +107,7 @@ TSP::TSP(const Input& input, std::vector<Index> job_ranks, Index vehicle_rank)
   for (Index i = 0; i < _matrix.size(); ++i) {
     _symmetrized_matrix[i][i] = _matrix[i][i];
     for (Index j = i + 1; j < _matrix.size(); ++j) {
-      _is_symmetric &= (_matrix[i][j] == _matrix[j][i]);
+      _is_symmetric = _is_symmetric && (_matrix[i][j] == _matrix[j][i]);
       Cost val = sym_f(_matrix[i][j], _matrix[j][i]);
       _symmetrized_matrix[i][j] = val;
       _symmetrized_matrix[j][i] = val;
@@ -157,7 +157,7 @@ Cost TSP::symmetrized_cost(const std::list<Index>& tour) const {
   return cost;
 }
 
-RawSolution TSP::raw_solve(unsigned, unsigned nb_threads) const {
+std::vector<Index> TSP::raw_solve(unsigned nb_threads) const {
   // Applying heuristic.
   std::list<Index> christo_sol = tsp::christofides(_symmetrized_matrix);
 
@@ -265,13 +265,15 @@ RawSolution TSP::raw_solve(unsigned, unsigned nb_threads) const {
                  std::back_inserter(init_ranks_sol),
                  [&](const auto& i) { return _job_ranks[i]; });
 
-  return {init_ranks_sol};
+  return init_ranks_sol;
 }
 
 Solution TSP::solve(unsigned,
                     unsigned nb_threads,
                     const std::vector<HeuristicParameters>&) const {
-  return utils::format_solution(_input, raw_solve(0, nb_threads));
+  RawRoute r(_input, 0);
+  r.set_route(_input, raw_solve(nb_threads));
+  return utils::format_solution(_input, {r});
 }
 
 } // namespace vroom

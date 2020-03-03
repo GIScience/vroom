@@ -5,7 +5,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -24,7 +24,8 @@ struct Route {
   const Duration service;
   const Duration duration;
   const Duration waiting_time;
-  const Amount amount;
+  const Amount delivery;
+  const Amount pickup;
 
   std::string geometry;
   Distance distance;
@@ -35,7 +36,8 @@ struct Route {
         Duration service,
         Duration duration,
         Duration waiting_time,
-        const Amount& amount);
+        const Amount& delivery,
+        const Amount& pickup);
 };
 
 } // namespace vroom

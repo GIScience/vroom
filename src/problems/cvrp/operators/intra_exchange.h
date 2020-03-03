@@ -5,7 +5,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -17,6 +17,10 @@ namespace cvrp {
 
 class IntraExchange : public ls::Operator {
 protected:
+  std::vector<Index> _moved_jobs;
+  const Index _first_rank;
+  const Index _last_rank;
+
   virtual void compute_gain() override;
 
 public:

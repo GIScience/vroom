@@ -5,7 +5,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -25,23 +25,30 @@ using RawSolution = std::vector<RawRoute>;
 using TWSolution = std::vector<TWRoute>;
 
 struct SolutionIndicators {
+  Priority priority_sum;
   unsigned unassigned;
   Cost cost;
   unsigned used_vehicles;
 
   friend bool operator<(const SolutionIndicators& lhs,
                         const SolutionIndicators& rhs) {
-    if (lhs.unassigned < rhs.unassigned) {
+    if (lhs.priority_sum > rhs.priority_sum) {
       return true;
     }
-    if (lhs.unassigned == rhs.unassigned) {
-      if (lhs.cost < rhs.cost) {
+    if (lhs.priority_sum == rhs.priority_sum) {
+      if (lhs.unassigned < rhs.unassigned) {
         return true;
       }
-      if (lhs.cost == rhs.cost and lhs.used_vehicles < rhs.used_vehicles) {
-        return true;
+      if (lhs.unassigned == rhs.unassigned) {
+        if (lhs.cost < rhs.cost) {
+          return true;
+        }
+        if (lhs.cost == rhs.cost and lhs.used_vehicles < rhs.used_vehicles) {
+          return true;
+        }
       }
     }
+
     return false;
   }
 };
@@ -51,17 +58,10 @@ private:
   const Input& _input;
   const Matrix<Cost>& _m;
   const std::size_t _nb_vehicles;
-  const Amount _empty_amount;
 
 public:
   // Store unassigned jobs.
   std::unordered_set<Index> unassigned;
-
-  // fwd_amounts[v][i] stores the total amount up to rank i in the
-  // route for vehicle v, while bwd_amounts[v][i] stores the total
-  // amount *after* rank i in the route for vehicle v.
-  std::vector<std::vector<Amount>> fwd_amounts;
-  std::vector<std::vector<Amount>> bwd_amounts;
 
   // fwd_costs[v][i] stores the total cost from job at rank 0 to job
   // at rank i in the route for vehicle v, while bwd_costs[v][i]
@@ -101,6 +101,17 @@ public:
   std::vector<std::vector<Gain>> edge_gains;
   std::vector<Index> edge_candidates;
 
+  // pd_gains[v][i] stores potential gain when removing pickup at rank
+  // i in route for vehicle v along with it's associated delivery.
+  std::vector<std::vector<Gain>> pd_gains;
+
+  // If job at rank i in route for vehicle v is a pickup
+  // (resp. delivery), then matching_delivery_rank[v][i]
+  // (resp. _matching_pickup_rank[v][i]) stores the rank of the
+  // matching delivery (resp. pickup).
+  std::vector<std::vector<Index>> matching_delivery_rank;
+  std::vector<std::vector<Index>> matching_pickup_rank;
+
   // nearest_job_rank_in_routes_from[v1][v2][r1] stores the rank of
   // job in route v2 that minimize cost from job at rank r1 in v1.
   std::vector<std::vector<std::vector<Index>>> nearest_job_rank_in_routes_from;
@@ -119,8 +130,6 @@ public:
 
   void setup(const TWSolution& tw_sol);
 
-  void update_amounts(const std::vector<Index>& route, Index v);
-
   void update_costs(const std::vector<Index>& route, Index v);
 
   void update_skills(const std::vector<Index>& route, Index v1);
@@ -129,14 +138,16 @@ public:
 
   void set_edge_gains(const std::vector<Index>& route, Index v);
 
+  void set_pd_gains(const std::vector<Index>& route, Index v);
+
+  void set_pd_matching_ranks(const std::vector<Index>& route, Index v);
+
   void update_nearest_job_rank_in_routes(const std::vector<Index>& route_1,
                                          const std::vector<Index>& route_2,
                                          Index v1,
                                          Index v2);
 
   void update_route_cost(const std::vector<Index>& route, Index v);
-
-  const Amount& total_amount(Index v) const;
 };
 
 } // namespace utils

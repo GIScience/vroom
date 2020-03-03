@@ -2,7 +2,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -33,6 +33,8 @@ Relocate::Relocate(const Input& input,
   assert(s_route.size() >= 1);
   assert(s_rank < s_route.size());
   assert(t_rank <= t_route.size());
+
+  assert(_input.vehicle_ok_with_job(t_vehicle, this->s_route[s_rank]));
 }
 
 void Relocate::compute_gain() {
@@ -53,26 +55,20 @@ void Relocate::compute_gain() {
 }
 
 bool Relocate::is_valid() {
-  auto relocate_job_rank = s_route[s_rank];
-
-  bool valid = _input.vehicle_ok_with_job(t_vehicle, relocate_job_rank);
-
-  if (_sol_state.fwd_amounts[t_vehicle].empty()) {
-    valid &= (_input.jobs[relocate_job_rank].amount <=
-              _input.vehicles[t_vehicle].capacity);
-  } else {
-    valid &= (_sol_state.fwd_amounts[t_vehicle].back() +
-                _input.jobs[relocate_job_rank].amount <=
-              _input.vehicles[t_vehicle].capacity);
-  }
-
-  return valid;
+  return target
+    .is_valid_addition_for_capacity(_input,
+                                    _input.jobs[s_route[s_rank]].pickup,
+                                    _input.jobs[s_route[s_rank]].delivery,
+                                    t_rank);
 }
 
 void Relocate::apply() {
   auto relocate_job_rank = s_route[s_rank];
   s_route.erase(s_route.begin() + s_rank);
   t_route.insert(t_route.begin() + t_rank, relocate_job_rank);
+
+  source.update_amounts(_input);
+  target.update_amounts(_input);
 }
 
 std::vector<Index> Relocate::addition_candidates() const {

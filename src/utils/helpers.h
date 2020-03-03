@@ -5,11 +5,12 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
 
+#include <numeric>
 #include <sstream>
 
 #include "structures/typedefs.h"
@@ -93,6 +94,8 @@ inline Gain addition_cost(const Input& input,
                           const Vehicle& v,
                           const std::vector<Index>& route,
                           Index rank) {
+  assert(rank <= route.size());
+
   Index job_index = input.jobs[job_rank].index();
   Gain previous_cost = 0;
   Gain next_cost = 0;
@@ -138,6 +141,65 @@ inline Gain addition_cost(const Input& input,
   return previous_cost + next_cost - old_edge_cost;
 }
 
+// Compute cost of adding pickup with rank job_rank and associated
+// delivery (with rank job_rank + 1) in given route for vehicle
+// v. Pickup is inserted at pickup_rank in route and delivery is
+// inserted at delivery_rank in route **with pickup**.
+inline Gain addition_cost(const Input& input,
+                          const Matrix<Cost>& m,
+                          Index job_rank,
+                          const Vehicle& v,
+                          const std::vector<Index>& route,
+                          Index pickup_rank,
+                          Index delivery_rank) {
+  assert(pickup_rank < delivery_rank and delivery_rank <= route.size() + 1);
+
+  // Start with pickup cost.
+  auto cost = addition_cost(input, m, job_rank, v, route, pickup_rank);
+
+  if (delivery_rank == pickup_rank + 1) {
+    // Delivery is inserted just after pickup.
+    Index p_index = input.jobs[job_rank].index();
+    Index d_index = input.jobs[job_rank + 1].index();
+    cost += m[p_index][d_index];
+
+    Gain after_delivery = 0;
+    Gain remove_after_pickup = 0;
+
+    if (pickup_rank == route.size()) {
+      // Addition at the end of a route.
+      if (v.has_end()) {
+        after_delivery = m[d_index][v.end.get().index()];
+        remove_after_pickup = m[p_index][v.end.get().index()];
+      }
+    } else {
+      // There is a job after insertion.
+      Index next_index = input.jobs[route[pickup_rank]].index();
+      after_delivery = m[d_index][next_index];
+      remove_after_pickup = m[p_index][next_index];
+    }
+
+    cost += after_delivery;
+    cost -= remove_after_pickup;
+  } else {
+    // Delivery is further away so edges sets for pickup and delivery
+    // addition are disjoint.
+    cost += addition_cost(input, m, job_rank + 1, v, route, delivery_rank - 1);
+  }
+
+  return cost;
+}
+
+inline Cost priority_sum_for_route(const Input& input,
+                                   const std::vector<Index>& route) {
+  return std::accumulate(route.begin(),
+                         route.end(),
+                         0,
+                         [&](auto sum, auto job_rank) {
+                           return sum + input.jobs[job_rank].priority;
+                         });
+}
+
 inline Cost route_cost_for_vehicle(const Input& input,
                                    Index vehicle_rank,
                                    const std::vector<Index>& route) {
@@ -164,6 +226,23 @@ inline Cost route_cost_for_vehicle(const Input& input,
   return cost;
 }
 
+inline void check_precedence(const Input& input,
+                             std::unordered_set<Index>& expected_delivery_ranks,
+                             Index job_rank) {
+  switch (input.jobs[job_rank].type) {
+  case JOB_TYPE::SINGLE:
+    break;
+  case JOB_TYPE::PICKUP:
+    expected_delivery_ranks.insert(job_rank + 1);
+    break;
+  case JOB_TYPE::DELIVERY:
+    // Associated pickup has been done before.
+    auto search = expected_delivery_ranks.find(job_rank);
+    assert(search != expected_delivery_ranks.end());
+    expected_delivery_ranks.erase(search);
+  }
+}
+
 inline Solution format_solution(const Input& input,
                                 const RawSolution& raw_routes) {
   const auto& m = input.get_matrix();
@@ -185,7 +264,11 @@ inline Solution format_solution(const Input& input,
 
     Cost cost = 0;
     Duration service = 0;
-    Amount amount(input.amount_size());
+    Amount sum_pickups(input.zero_amount());
+    Amount sum_deliveries(input.zero_amount());
+    std::unordered_set<Index> expected_delivery_ranks;
+    Amount current_load = raw_routes[i].get_startup_load();
+    assert(current_load <= v.capacity);
 
     // Steps for current route.
     std::vector<Step> steps;
@@ -193,7 +276,7 @@ inline Solution format_solution(const Input& input,
     Duration ETA = 0;
     // Handle start.
     if (v.has_start()) {
-      steps.emplace_back(STEP_TYPE::START, v.start.get());
+      steps.emplace_back(STEP_TYPE::START, v.start.get(), current_load);
       steps.back().duration = 0;
       steps.back().arrival = 0;
       auto travel = m[v.start.get().index()][input.jobs[route.front()].index()];
@@ -203,12 +286,19 @@ inline Solution format_solution(const Input& input,
 
     // Handle jobs.
     assert(input.vehicle_ok_with_job(i, route.front()));
-    steps.emplace_back(input.jobs[route.front()]);
+    auto& first_job = input.jobs[route.front()];
+    service += first_job.service;
 
+    current_load += first_job.pickup;
+    current_load -= first_job.delivery;
+    sum_pickups += first_job.pickup;
+    sum_deliveries += first_job.delivery;
+    assert(current_load <= v.capacity);
+
+    check_precedence(input, expected_delivery_ranks, route.front());
+
+    steps.emplace_back(first_job, current_load);
     auto& first = steps.back();
-    service += first.service;
-    amount += first.amount;
-
     first.duration = ETA;
     first.arrival = ETA;
     ETA += first.service;
@@ -221,20 +311,28 @@ inline Solution format_solution(const Input& input,
       ETA += travel;
       cost += travel;
 
-      steps.emplace_back(input.jobs[route[r + 1]]);
+      auto& current_job = input.jobs[route[r + 1]];
+      service += current_job.service;
+
+      current_load += current_job.pickup;
+      current_load -= current_job.delivery;
+      sum_pickups += current_job.pickup;
+      sum_deliveries += current_job.delivery;
+      assert(current_load <= v.capacity);
+
+      check_precedence(input, expected_delivery_ranks, route[r + 1]);
+
+      steps.emplace_back(current_job, current_load);
       auto& current = steps.back();
-      service += current.service;
-      amount += current.amount;
       current.duration = cost;
       current.arrival = ETA;
-
       ETA += current.service;
       unassigned_ranks.erase(route[r + 1]);
     }
 
     // Handle end.
     if (v.has_end()) {
-      steps.emplace_back(STEP_TYPE::END, v.end.get());
+      steps.emplace_back(STEP_TYPE::END, v.end.get(), current_load);
       Duration travel =
         m[input.jobs[route.back()].index()][v.end.get().index()];
       ETA += travel;
@@ -243,8 +341,16 @@ inline Solution format_solution(const Input& input,
       steps.back().arrival = ETA;
     }
 
-    assert(amount <= v.capacity);
-    routes.emplace_back(v.id, std::move(steps), cost, service, cost, 0, amount);
+    assert(expected_delivery_ranks.empty());
+
+    routes.emplace_back(v.id,
+                        std::move(steps),
+                        cost,
+                        service,
+                        cost,
+                        0,
+                        sum_deliveries,
+                        sum_pickups);
   }
 
   // Handle unassigned jobs.
@@ -255,15 +361,157 @@ inline Solution format_solution(const Input& input,
                  [&](auto j) { return input.jobs[j]; });
 
   return Solution(0,
-                  input.amount_size(),
+                  input.zero_amount().size(),
                   std::move(routes),
                   std::move(unassigned_jobs));
 }
 
+inline Route format_route(const Input& input,
+                          const TWRoute& tw_r,
+                          std::unordered_set<Index>& unassigned_ranks) {
+  const auto& m = input.get_matrix();
+  const auto& v = input.vehicles[tw_r.vehicle_rank];
+
+  // ETA logic: aim at earliest possible arrival for last job then
+  // determine latest possible start time in order to minimize waiting
+  // times.
+  Duration job_start = tw_r.earliest.back();
+  Duration backward_wt = 0;
+  for (std::size_t r = tw_r.route.size() - 1; r > 0; --r) {
+    const auto& current_job = input.jobs[tw_r.route[r]];
+    const auto& previous_job = input.jobs[tw_r.route[r - 1]];
+
+    Duration diff =
+      previous_job.service + m[previous_job.index()][current_job.index()];
+
+    assert(diff <= job_start);
+    Duration candidate_start = job_start - diff;
+    assert(tw_r.earliest[r - 1] <= candidate_start);
+
+    job_start = std::min(candidate_start, tw_r.latest[r - 1]);
+    if (job_start < candidate_start) {
+      backward_wt += (candidate_start - job_start);
+    }
+    assert(previous_job.is_valid_start(job_start));
+  }
+
+  Cost cost = 0;
+  Duration service = 0;
+  Amount sum_pickups(input.zero_amount());
+  Amount sum_deliveries(input.zero_amount());
+  std::unordered_set<Index> expected_delivery_ranks;
+  Amount current_load = tw_r.get_startup_load();
+  assert(current_load <= v.capacity);
+
+  // Steps for current route.
+  std::vector<Step> steps;
+
+  // Now pack everything ASAP based on first job start date.
+  if (v.has_start()) {
+    steps.emplace_back(STEP_TYPE::START, v.start.get(), current_load);
+    steps.back().duration = 0;
+
+    const auto& first_job = input.jobs[tw_r.route[0]];
+    Duration diff = m[v.start.get().index()][first_job.index()];
+    cost += diff;
+
+    assert(diff <= job_start);
+    auto v_start = job_start - diff;
+    assert(v.tw.contains(v_start));
+    steps.back().arrival = v_start;
+  }
+
+  // Handle jobs.
+  assert(input.vehicle_ok_with_job(tw_r.vehicle_rank, tw_r.route.front()));
+  auto& first_job = input.jobs[tw_r.route.front()];
+  service += first_job.service;
+
+  current_load += first_job.pickup;
+  current_load -= first_job.delivery;
+  sum_pickups += first_job.pickup;
+  sum_deliveries += first_job.delivery;
+  assert(current_load <= v.capacity);
+
+  check_precedence(input, expected_delivery_ranks, tw_r.route.front());
+
+  steps.emplace_back(first_job, current_load);
+  auto& first = steps.back();
+  first.duration = cost;
+  first.arrival = job_start;
+  unassigned_ranks.erase(tw_r.route.front());
+
+  Duration forward_wt = 0;
+  for (std::size_t r = 0; r < tw_r.route.size() - 1; ++r) {
+    assert(input.vehicle_ok_with_job(tw_r.vehicle_rank, tw_r.route[r + 1]));
+    const auto& previous_job = input.jobs[tw_r.route[r]];
+    const auto& next_job = input.jobs[tw_r.route[r + 1]];
+
+    Duration travel = m[previous_job.index()][next_job.index()];
+    cost += travel;
+
+    auto& current_job = input.jobs[tw_r.route[r + 1]];
+    service += current_job.service;
+
+    current_load += current_job.pickup;
+    current_load -= current_job.delivery;
+    sum_pickups += current_job.pickup;
+    sum_deliveries += current_job.delivery;
+    assert(current_load <= v.capacity);
+
+    check_precedence(input, expected_delivery_ranks, tw_r.route[r + 1]);
+
+    steps.emplace_back(current_job, current_load);
+    auto& current = steps.back();
+    current.duration = cost;
+
+    Duration start_candidate = job_start + previous_job.service + travel;
+    assert(start_candidate <= tw_r.latest[r + 1]);
+
+    current.arrival = start_candidate;
+    job_start = std::max(start_candidate, tw_r.earliest[r + 1]);
+
+    if (start_candidate < tw_r.earliest[r + 1]) {
+      Duration wt = tw_r.earliest[r + 1] - start_candidate;
+      current.waiting_time = wt;
+      forward_wt += wt;
+    }
+    assert(next_job.is_valid_start(current.arrival + current.waiting_time));
+
+    unassigned_ranks.erase(tw_r.route[r + 1]);
+  }
+
+  if (v.has_end()) {
+    const auto& last_job = input.jobs[tw_r.route.back()];
+    Duration travel = m[last_job.index()][v.end.get().index()];
+    cost += travel;
+
+    steps.emplace_back(STEP_TYPE::END, v.end.get(), current_load);
+    steps.back().duration = cost;
+
+    Duration v_end = job_start + last_job.service + travel;
+    assert(v.tw.contains(v_end));
+    steps.back().arrival = v_end;
+  }
+
+  assert(forward_wt == backward_wt);
+  assert(steps.back().arrival + steps.back().waiting_time +
+           steps.back().service - steps.front().arrival ==
+         cost + service + forward_wt);
+
+  assert(expected_delivery_ranks.empty());
+
+  return Route(v.id,
+               std::move(steps),
+               cost,
+               service,
+               cost,
+               forward_wt,
+               sum_deliveries,
+               sum_pickups);
+}
+
 inline Solution format_solution(const Input& input,
                                 const TWSolution& tw_routes) {
-  const auto& m = input.get_matrix();
-
   std::vector<Route> routes;
 
   // All job ranks start with unassigned status.
@@ -272,124 +520,12 @@ inline Solution format_solution(const Input& input,
     unassigned_ranks.insert(i);
   }
 
-  for (std::size_t i = 0; i < tw_routes.size(); ++i) {
-    const auto& tw_r = tw_routes[i];
-    const auto& v = input.vehicles[tw_r.vehicle_rank];
-    if (tw_r.route.empty()) {
+  for (const auto& tw_route : tw_routes) {
+    if (tw_route.route.empty()) {
       continue;
     }
 
-    // ETA logic: aim at earliest possible arrival for last job then
-    // determine latest possible start time in order to minimize
-    // waiting times.
-    Duration job_start = tw_r.earliest.back();
-    Duration backward_wt = 0;
-    for (std::size_t r = tw_r.route.size() - 1; r > 0; --r) {
-      const auto& current_job = input.jobs[tw_r.route[r]];
-      const auto& previous_job = input.jobs[tw_r.route[r - 1]];
-
-      Duration diff =
-        previous_job.service + m[previous_job.index()][current_job.index()];
-
-      assert(diff <= job_start);
-      Duration candidate_start = job_start - diff;
-      assert(tw_r.earliest[r - 1] <= candidate_start);
-
-      job_start = std::min(candidate_start, tw_r.latest[r - 1]);
-      if (job_start < candidate_start) {
-        backward_wt += (candidate_start - job_start);
-      }
-      assert(previous_job.is_valid_start(job_start));
-    }
-
-    Cost cost = 0;
-    Duration service = 0;
-    Amount amount(input.amount_size());
-    // Steps for current route.
-    std::vector<Step> steps;
-
-    // Now pack everything ASAP based on first job start date.
-    if (v.has_start()) {
-      steps.emplace_back(STEP_TYPE::START, v.start.get());
-      steps.back().duration = 0;
-
-      const auto& first_job = input.jobs[tw_r.route[0]];
-      Duration diff = m[v.start.get().index()][first_job.index()];
-      cost += diff;
-
-      assert(diff <= job_start);
-      auto v_start = job_start - diff;
-      assert(v.tw.contains(v_start));
-      steps.back().arrival = v_start;
-    }
-
-    assert(input.vehicle_ok_with_job(i, tw_r.route.front()));
-    steps.emplace_back(input.jobs[tw_r.route.front()]);
-    auto& first = steps.back();
-    service += first.service;
-    amount += first.amount;
-
-    first.duration = cost;
-    first.arrival = job_start;
-    unassigned_ranks.erase(tw_r.route.front());
-
-    Duration forward_wt = 0;
-    for (std::size_t r = 0; r < tw_r.route.size() - 1; ++r) {
-      assert(input.vehicle_ok_with_job(i, tw_r.route[r + 1]));
-      const auto& previous_job = input.jobs[tw_r.route[r]];
-      const auto& next_job = input.jobs[tw_r.route[r + 1]];
-
-      Duration travel = m[previous_job.index()][next_job.index()];
-      cost += travel;
-
-      steps.emplace_back(input.jobs[tw_r.route[r + 1]]);
-      auto& current = steps.back();
-      service += current.service;
-      amount += current.amount;
-      current.duration = cost;
-
-      Duration start_candidate = job_start + previous_job.service + travel;
-      assert(start_candidate <= tw_r.latest[r + 1]);
-
-      current.arrival = start_candidate;
-      job_start = std::max(start_candidate, tw_r.earliest[r + 1]);
-
-      if (start_candidate < tw_r.earliest[r + 1]) {
-        Duration wt = tw_r.earliest[r + 1] - start_candidate;
-        current.waiting_time = wt;
-        forward_wt += wt;
-      }
-      assert(next_job.is_valid_start(current.arrival + current.waiting_time));
-
-      unassigned_ranks.erase(tw_r.route[r + 1]);
-    }
-
-    if (v.has_end()) {
-      const auto& last_job = input.jobs[tw_r.route.back()];
-      Duration travel = m[last_job.index()][v.end.get().index()];
-      cost += travel;
-
-      steps.emplace_back(STEP_TYPE::END, v.end.get());
-      steps.back().duration = cost;
-
-      Duration v_end = job_start + last_job.service + travel;
-      assert(v.tw.contains(v_end));
-      steps.back().arrival = v_end;
-    }
-
-    assert(amount <= v.capacity);
-    assert(forward_wt == backward_wt);
-    assert(steps.back().arrival + steps.back().waiting_time +
-             steps.back().service - steps.front().arrival ==
-           cost + service + forward_wt);
-
-    routes.emplace_back(v.id,
-                        std::move(steps),
-                        cost,
-                        service,
-                        cost,
-                        forward_wt,
-                        amount);
+    routes.push_back(format_route(input, tw_route, unassigned_ranks));
   }
 
   // Handle unassigned jobs.
@@ -400,7 +536,7 @@ inline Solution format_solution(const Input& input,
                  [&](auto j) { return input.jobs[j]; });
 
   return Solution(0,
-                  input.amount_size(),
+                  input.zero_amount().size(),
                   std::move(routes),
                   std::move(unassigned_jobs));
 }

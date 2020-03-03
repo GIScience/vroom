@@ -5,15 +5,15 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
 
 #define MAJOR 1
-#define MINOR 4
+#define MINOR 6
 #define PATCH 0
-#define DEV 1
+#define DEV 0
 #define RC 0
 
 #include <string>

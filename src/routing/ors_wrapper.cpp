@@ -2,30 +2,27 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
 
 #include "../include/rapidjson/document.h"
 #include "../include/rapidjson/error/en.h"
-#include <boost/asio.hpp>
 
-#include "routing/orshttp_wrapper.h"
+#include "routing/ors_wrapper.h"
 #include "utils/exception.h"
-
-using boost::asio::ip::tcp;
 
 namespace vroom {
 namespace routing {
 
-OrsHttpWrapper::OrsHttpWrapper(const std::string& profile, const Server& server)
-  : OSRMWrapper(profile), _server(server) {
+OrsWrapper::OrsWrapper(const std::string& profile, const Server& server)
+  : RoutingWrapper(profile), HttpWrapper(server) {
 }
 
-std::string OrsHttpWrapper::build_query(const std::vector<Location>& locations,
-                                        std::string service,
-                                        std::string extra_args = "") const {
+std::string OrsWrapper::build_query(const std::vector<Location>& locations,
+                                    std::string service,
+                                    std::string extra_args = "") const {
   // Adding locations.
   std::string body = "{\"";
   if (service == "directions") {
@@ -59,52 +56,9 @@ std::string OrsHttpWrapper::build_query(const std::vector<Location>& locations,
   return query;
 }
 
-std::string OrsHttpWrapper::send_then_receive(std::string query) const {
-  std::string response;
-
-  try {
-    boost::asio::io_service io_service;
-
-    tcp::resolver r(io_service);
-
-    tcp::resolver::query q(_server.host, _server.port);
-
-    tcp::socket s(io_service);
-    boost::asio::connect(s, r.resolve(q));
-
-    boost::asio::write(s, boost::asio::buffer(query));
-
-    char buf[512];
-    boost::system::error_code error;
-    for (;;) {
-      std::size_t len = s.read_some(boost::asio::buffer(buf), error);
-      response.append(buf, len);
-      if (error == boost::asio::error::eof) {
-        // Connection closed cleanly.
-        break;
-      } else {
-        if (error) {
-          throw boost::system::system_error(error);
-        }
-      }
-    }
-  } catch (boost::system::system_error& e) {
-    throw Exception(ERROR::ROUTING,
-                    "Failed to connect to ORS at " + _server.host + ":" +
-                      _server.port);
-  }
-  return response;
-}
-
-Matrix<Cost>
-OrsHttpWrapper::get_matrix(const std::vector<Location>& locs) const {
+Matrix<Cost> OrsWrapper::get_matrix(const std::vector<Location>& locs) const {
   std::string query = this->build_query(locs, "matrix");
-  std::string response = this->send_then_receive(query);
-
-  // Removing headers.
-  std::size_t json_start = response.find("{");
-  std::size_t json_length = response.rfind("}") - json_start + 1;
-  std::string json_content = response.substr(json_start, json_length);
+  std::string json_content = this->run_query(query);
 
   // Expected matrix size.
   std::size_t m_size = locs.size();
@@ -153,7 +107,7 @@ OrsHttpWrapper::get_matrix(const std::vector<Location>& locs) const {
   return m;
 }
 
-void OrsHttpWrapper::add_route_info(Route& route) const {
+void OrsWrapper::add_route_info(Route& route) const {
   // Ordering locations for the given steps.
   std::vector<Location> ordered_locations;
   for (const auto& step : route.steps) {
@@ -165,12 +119,7 @@ void OrsHttpWrapper::add_route_info(Route& route) const {
 
   std::string query =
     this->build_query(ordered_locations, "directions", extra_args);
-  std::string response = this->send_then_receive(query);
-
-  // Removing headers
-  std::size_t json_start = response.find("{");
-  std::size_t json_length = response.rfind("}") - json_start + 1;
-  std::string json_content = response.substr(json_start, json_length);
+  std::string json_content = this->run_query(query);
 
   // Checking everything is fine in the response.
   rapidjson::Document infos;

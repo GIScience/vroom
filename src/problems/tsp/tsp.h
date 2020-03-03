@@ -5,7 +5,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -41,7 +41,7 @@ public:
 
   Cost symmetrized_cost(const std::list<Index>& tour) const;
 
-  RawSolution raw_solve(unsigned, unsigned nb_threads) const;
+  std::vector<Index> raw_solve(unsigned nb_threads) const;
 
   virtual Solution
   solve(unsigned,

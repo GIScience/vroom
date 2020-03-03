@@ -2,7 +2,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -33,6 +33,8 @@ Exchange::Exchange(const Input& input,
   assert(t_route.size() >= 1);
   assert(s_rank < s_route.size());
   assert(t_rank < t_route.size());
+  assert(_input.vehicle_ok_with_job(t_vehicle, this->s_route[s_rank]));
+  assert(_input.vehicle_ok_with_job(s_vehicle, this->t_route[t_rank]));
 }
 
 void Exchange::compute_gain() {
@@ -109,25 +111,33 @@ void Exchange::compute_gain() {
 }
 
 bool Exchange::is_valid() {
-  auto s_job_rank = s_route[s_rank];
-  auto t_job_rank = t_route[t_rank];
+  bool valid =
+    target.is_valid_addition_for_capacity_margins(_input,
+                                                  _input.jobs[s_route[s_rank]]
+                                                    .pickup,
+                                                  _input.jobs[s_route[s_rank]]
+                                                    .delivery,
+                                                  t_rank,
+                                                  t_rank + 1);
 
-  bool valid = _input.vehicle_ok_with_job(t_vehicle, s_job_rank);
-  valid &= _input.vehicle_ok_with_job(s_vehicle, t_job_rank);
-
-  valid &= (_sol_state.fwd_amounts[t_vehicle].back() -
-              _input.jobs[t_job_rank].amount + _input.jobs[s_job_rank].amount <=
-            _input.vehicles[t_vehicle].capacity);
-
-  valid &= (_sol_state.fwd_amounts[s_vehicle].back() -
-              _input.jobs[s_job_rank].amount + _input.jobs[t_job_rank].amount <=
-            _input.vehicles[s_vehicle].capacity);
+  valid =
+    valid &&
+    source.is_valid_addition_for_capacity_margins(_input,
+                                                  _input.jobs[t_route[t_rank]]
+                                                    .pickup,
+                                                  _input.jobs[t_route[t_rank]]
+                                                    .delivery,
+                                                  s_rank,
+                                                  s_rank + 1);
 
   return valid;
 }
 
 void Exchange::apply() {
   std::swap(s_route[s_rank], t_route[t_rank]);
+
+  source.update_amounts(_input);
+  target.update_amounts(_input);
 }
 
 std::vector<Index> Exchange::addition_candidates() const {

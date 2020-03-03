@@ -5,7 +5,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -18,7 +18,8 @@ namespace vroom {
 struct Summary {
   Cost cost;
   const unsigned unassigned;
-  Amount amount;
+  Amount delivery;
+  Amount pickup;
   Duration service;
 
   Duration duration;

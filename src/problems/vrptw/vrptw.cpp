@@ -2,7 +2,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -20,8 +20,10 @@ All rights reserved (see LICENSE).
 #include "problems/vrptw/operators/intra_relocate.h"
 #include "problems/vrptw/operators/mixed_exchange.h"
 #include "problems/vrptw/operators/or_opt.h"
+#include "problems/vrptw/operators/pd_shift.h"
 #include "problems/vrptw/operators/relocate.h"
 #include "problems/vrptw/operators/reverse_two_opt.h"
+#include "problems/vrptw/operators/route_exchange.h"
 #include "problems/vrptw/operators/two_opt.h"
 #include "problems/vrptw/vrptw.h"
 #include "structures/vroom/input/input.h"
@@ -44,7 +46,9 @@ using LocalSearch = ls::LocalSearch<TWRoute,
                                     vrptw::IntraCrossExchange,
                                     vrptw::IntraMixedExchange,
                                     vrptw::IntraRelocate,
-                                    vrptw::IntraOrOpt>;
+                                    vrptw::IntraOrOpt,
+                                    vrptw::PDShift,
+                                    vrptw::RouteExchange>;
 
 const std::vector<HeuristicParameters> VRPTW::homogeneous_parameters =
   {HeuristicParameters(HEURISTIC::BASIC, INIT::HIGHER_AMOUNT, 0.3),

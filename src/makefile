@@ -1,12 +1,12 @@
 # This file is part of VROOM.
 #
-# Copyright (c) 2015-2019, Julien Coupey.
+# Copyright (c) 2015-2020, Julien Coupey.
 # All rights reserved (see LICENSE).
 
 # Variables.
 CXX ?= g++
-CXXFLAGS = -MMD -MP -I. -std=c++14 -Wextra -Wpedantic -Wall -O3
-LDLIBS = -lboost_system -lpthread
+CXXFLAGS = -MMD -MP -I. -std=c++14 -Wextra -Wpedantic -Wall -O3 -DNDEBUG
+LDLIBS = -lboost_system -lpthread -lssl -lcrypto
 
 # Using all cpp files in current directory.
 MAIN = ../bin/vroom

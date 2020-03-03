@@ -5,7 +5,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -33,7 +33,9 @@ public:
 
   bool has_coordinates() const;
 
-  Index index() const;
+  Index index() const {
+    return _index;
+  }
 
   Coordinate lon() const;
 

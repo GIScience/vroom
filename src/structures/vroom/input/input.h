@@ -5,7 +5,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -39,31 +39,33 @@ private:
   bool _has_TW;
   bool _homogeneous_locations;
   bool _geometry;
+  bool _has_jobs;
+  bool _has_shipments;
+  bool _has_custom_matrix;
   Matrix<Cost> _matrix;
   std::vector<Location> _locations;
   std::unordered_map<Location, Index> _locations_to_index;
-  unsigned _amount_size;
-  Amount _amount_lower_bound;
-  std::vector<std::vector<bool>> _vehicle_to_job_compatibility;
+  std::vector<std::vector<unsigned char>> _vehicle_to_job_compatibility;
   std::vector<std::vector<bool>> _vehicle_to_vehicle_compatibility;
   std::unordered_set<Index> _matrix_used_index;
   bool _all_locations_have_coords;
 
-  void check_amount_size(unsigned size);
+  const unsigned _amount_size;
+  const Amount _zero;
 
   std::unique_ptr<VRP> get_problem() const;
+
+  void check_job(Job& job);
 
   void check_cost_bound() const;
 
   void set_compatibility();
 
-  void store_amount_lower_bound(const Amount& amount);
-
 public:
   std::vector<Job> jobs;
   std::vector<Vehicle> vehicles;
 
-  Input();
+  Input(unsigned amount_size);
 
   void set_geometry(bool geometry);
 
@@ -71,24 +73,34 @@ public:
 
   void add_job(const Job& job);
 
+  void add_shipment(const Job& pickup, const Job& delivery);
+
   void add_vehicle(const Vehicle& vehicle);
 
   void set_matrix(Matrix<Cost>&& m);
 
-  unsigned amount_size() const;
-
-  Amount get_amount_lower_bound() const;
+  const Amount& zero_amount() const {
+    return _zero;
+  }
 
   bool has_skills() const;
 
+  bool has_jobs() const;
+
+  bool has_shipments() const;
+
   bool has_homogeneous_locations() const;
 
-  bool vehicle_ok_with_job(Index v_index, Index j_index) const;
+  bool vehicle_ok_with_job(size_t v_index, size_t j_index) const {
+    return (bool)_vehicle_to_job_compatibility[v_index][j_index];
+  }
 
   // Returns true iff both vehicles have common job candidates.
   bool vehicle_ok_with_vehicle(Index v1_index, Index v2_index) const;
 
-  const Matrix<Cost>& get_matrix() const;
+  const Matrix<Cost>& get_matrix() const {
+    return _matrix;
+  }
 
   Matrix<Cost> get_sub_matrix(const std::vector<Index>& indices) const;
 

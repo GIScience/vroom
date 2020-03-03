@@ -2,7 +2,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -26,7 +26,8 @@ Solution::Solution(unsigned code,
 
   for (const auto& route : this->routes) {
     summary.cost += route.cost;
-    summary.amount += route.amount;
+    summary.delivery += route.delivery;
+    summary.pickup += route.pickup;
     summary.service += route.service;
     summary.duration += route.duration;
     summary.waiting_time += route.waiting_time;

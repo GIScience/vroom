@@ -2,7 +2,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -12,9 +12,7 @@ All rights reserved (see LICENSE).
 namespace vroom {
 
 TWRoute::TWRoute(const Input& input, Index i)
-  : vehicle_rank(i),
-    has_start(input.vehicles[i].has_start()),
-    has_end(input.vehicles[i].has_end()),
+  : RawRoute(input, i),
     v_start(input.vehicles[i].tw.start),
     v_end(input.vehicles[i].tw.end) {
 }
@@ -188,7 +186,7 @@ bool TWRoute::is_valid_addition_for_tw(const Input& input,
     // The situation where there is no TW candidate should have been
     // previously filtered by early abort above.
     assert(overlap_candidate != j.tws.end());
-    valid &= overlap_candidate->start <= new_latest;
+    valid = overlap_candidate->start <= new_latest;
   }
 
   return valid;
@@ -291,6 +289,8 @@ void TWRoute::add(const Input& input, const Index job_rank, const Index rank) {
 
   fwd_update_earliest_from(input, rank);
   bwd_update_latest_from(input, rank);
+
+  update_amounts(input);
 }
 
 bool TWRoute::is_fwd_valid_removal(const Input& input,
@@ -499,6 +499,8 @@ void TWRoute::remove(const Input& input,
     fwd_update_earliest_with_TW_from(input, fwd_rank);
     bwd_update_latest_with_TW_from(input, bwd_rank);
   }
+
+  update_amounts(input);
 }
 
 template <class InputIterator>
@@ -661,6 +663,8 @@ void TWRoute::replace(const Input& input,
     // Update latest dates backward.
     bwd_update_latest_with_TW_from(input, insert_rank);
   }
+
+  update_amounts(input);
 }
 
 template bool

@@ -5,7 +5,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -20,11 +20,6 @@ class OrOpt : public cvrp::OrOpt {
 private:
   TWRoute& _tw_s_route;
   TWRoute& _tw_t_route;
-
-  bool _is_normal_valid;
-  bool _is_reverse_valid;
-
-  virtual void compute_gain() override;
 
 public:
   OrOpt(const Input& input,

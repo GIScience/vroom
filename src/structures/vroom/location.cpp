@@ -2,7 +2,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -30,10 +30,6 @@ void Location::set_index(Index index) {
 
 bool Location::has_coordinates() const {
   return _coords != boost::none;
-}
-
-Index Location::index() const {
-  return _index;
 }
 
 Coordinate Location::lon() const {

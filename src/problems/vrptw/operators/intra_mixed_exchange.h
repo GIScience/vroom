@@ -5,7 +5,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -20,24 +20,14 @@ class IntraMixedExchange : public cvrp::IntraMixedExchange {
 private:
   TWRoute& _tw_s_route;
 
-  bool _s_is_normal_valid;
-  bool _s_is_reverse_valid;
-
-  std::vector<Index> _moved_jobs;
-  const Index _first_rank;
-  const Index _last_rank;
-  Index _t_edge_first;
-  Index _t_edge_last;
-
-  virtual void compute_gain() override;
-
 public:
   IntraMixedExchange(const Input& input,
                      const utils::SolutionState& sol_state,
                      TWRoute& tw_s_route,
                      Index s_vehicle,
                      Index s_rank,
-                     Index t_rank);
+                     Index t_rank,
+                     bool check_t_reverse);
 
   virtual bool is_valid() override;
 

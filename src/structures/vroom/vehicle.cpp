@@ -2,7 +2,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -39,11 +39,11 @@ bool Vehicle::has_same_locations(const Vehicle& other) const {
               (this->has_end() == other.has_end());
 
   if (same and this->has_start()) {
-    same &= this->start.get() == other.start.get();
+    same = this->start.get() == other.start.get();
   }
 
   if (same and this->has_end()) {
-    same &= this->end.get() == other.end.get();
+    same = this->end.get() == other.end.get();
   }
 
   return same;

@@ -5,7 +5,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -45,9 +45,6 @@ private:
                             const unsigned count) const;
 
 public:
-  Index vehicle_rank;
-  bool has_start;
-  bool has_end;
   Duration v_start;
   Duration v_end;
 

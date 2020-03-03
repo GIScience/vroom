@@ -2,7 +2,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -33,6 +33,9 @@ ReverseTwoOpt::ReverseTwoOpt(const Input& input,
   assert(t_route.size() >= 1);
   assert(s_rank < s_route.size());
   assert(t_rank < t_route.size());
+
+  assert(_sol_state.bwd_skill_rank[s_vehicle][t_vehicle] <= s_rank + 1);
+  assert(t_rank < _sol_state.fwd_skill_rank[t_vehicle][s_vehicle]);
 }
 
 void ReverseTwoOpt::compute_gain() {
@@ -127,16 +130,43 @@ void ReverseTwoOpt::compute_gain() {
 }
 
 bool ReverseTwoOpt::is_valid() {
-  bool valid = (_sol_state.bwd_skill_rank[s_vehicle][t_vehicle] <= s_rank + 1);
+  auto t_delivery = target.delivery_in_range(0, t_rank + 1);
+  auto t_pickup = target.pickup_in_range(0, t_rank + 1);
 
-  valid &= (t_rank < _sol_state.fwd_skill_rank[t_vehicle][s_vehicle]);
+  bool valid = source.is_valid_addition_for_capacity_margins(_input,
+                                                             t_pickup,
+                                                             t_delivery,
+                                                             s_rank + 1,
+                                                             s_route.size());
 
-  valid &= (_sol_state.fwd_amounts[s_vehicle][s_rank] +
-              _sol_state.fwd_amounts[t_vehicle][t_rank] <=
-            _input.vehicles[s_vehicle].capacity);
-  valid &= (_sol_state.bwd_amounts[t_vehicle][t_rank] +
-              _sol_state.bwd_amounts[s_vehicle][s_rank] <=
-            _input.vehicles[t_vehicle].capacity);
+  auto s_delivery = source.delivery_in_range(s_rank + 1, s_route.size());
+  auto s_pickup = source.pickup_in_range(s_rank + 1, s_route.size());
+
+  valid = valid && target.is_valid_addition_for_capacity_margins(_input,
+                                                                 s_pickup,
+                                                                 s_delivery,
+                                                                 0,
+                                                                 t_rank + 1);
+
+  valid =
+    valid && source.is_valid_addition_for_capacity_inclusion(_input,
+                                                             t_delivery,
+                                                             t_route.rbegin() +
+                                                               t_route.size() -
+                                                               1 - t_rank,
+                                                             t_route.rend(),
+                                                             s_rank + 1,
+                                                             s_route.size());
+
+  valid =
+    valid && target.is_valid_addition_for_capacity_inclusion(_input,
+                                                             s_delivery,
+                                                             s_route.rbegin(),
+                                                             s_route.rbegin() +
+                                                               s_route.size() -
+                                                               1 - s_rank,
+                                                             0,
+                                                             t_rank + 1);
 
   return valid;
 }
@@ -153,6 +183,9 @@ void ReverseTwoOpt::apply() {
                  t_route.rend() - nb_source);
   t_route.erase(t_route.begin() + nb_source,
                 t_route.begin() + nb_source + t_rank + 1);
+
+  source.update_amounts(_input);
+  target.update_amounts(_input);
 }
 
 std::vector<Index> ReverseTwoOpt::addition_candidates() const {

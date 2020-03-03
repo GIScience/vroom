@@ -1,11 +1,11 @@
-#ifndef OSRM_WRAPPER_H
-#define OSRM_WRAPPER_H
+#ifndef ROUTING_WRAPPER_H
+#define ROUTING_WRAPPER_H
 
 /*
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -19,14 +19,14 @@ All rights reserved (see LICENSE).
 namespace vroom {
 namespace routing {
 
-class OSRMWrapper : public Wrapper<Cost> {
+class RoutingWrapper : public Wrapper<Cost> {
 
 protected:
   static Cost round_cost(double value) {
     return static_cast<Cost>(value + 0.5);
   }
 
-  OSRMWrapper(const std::string& profile) : Wrapper(profile) {
+  RoutingWrapper(const std::string& profile) : Wrapper(profile) {
   }
 
   inline void
@@ -51,7 +51,7 @@ protected:
       }
     }
     if (max_unfound_routes_for_a_loc > 0) {
-      std::string error_msg = "OSRM has unfound route(s) ";
+      std::string error_msg = "Unfound route(s) ";
       error_msg += error_direction;
       error_msg += "location [" + std::to_string(locs[error_loc].lon()) + ";" +
                    std::to_string(locs[error_loc].lat()) + "]";

@@ -2,7 +2,7 @@
 
 This file is part of VROOM.
 
-Copyright (c) 2015-2019, Julien Coupey.
+Copyright (c) 2015-2020, Julien Coupey.
 All rights reserved (see LICENSE).
 
 */
@@ -15,22 +15,37 @@ namespace cvrp {
 
 IntraRelocate::IntraRelocate(const Input& input,
                              const utils::SolutionState& sol_state,
-                             RawRoute& s_route,
+                             RawRoute& s_raw_route,
                              Index s_vehicle,
                              Index s_rank,
                              Index t_rank)
   : Operator(input,
              sol_state,
-             s_route,
+             s_raw_route,
              s_vehicle,
              s_rank,
-             s_route,
+             s_raw_route,
              s_vehicle,
-             t_rank) {
+             t_rank),
+    _moved_jobs((s_rank < t_rank) ? t_rank - s_rank + 1 : s_rank - t_rank + 1),
+    _first_rank(std::min(s_rank, t_rank)),
+    _last_rank(std::max(s_rank, t_rank) + 1) {
   assert(s_route.size() >= 2);
   assert(s_rank < s_route.size());
   assert(t_rank <= s_route.size() - 1);
   assert(s_rank != t_rank);
+
+  if (t_rank < s_rank) {
+    _moved_jobs[0] = s_route[s_rank];
+    std::copy(s_route.begin() + t_rank,
+              s_route.begin() + s_rank,
+              _moved_jobs.begin() + 1);
+  } else {
+    std::copy(s_route.begin() + s_rank + 1,
+              s_route.begin() + t_rank + 1,
+              _moved_jobs.begin());
+    _moved_jobs.back() = s_route[s_rank];
+  }
 }
 
 void IntraRelocate::compute_gain() {
@@ -58,13 +73,23 @@ void IntraRelocate::compute_gain() {
 }
 
 bool IntraRelocate::is_valid() {
-  return true;
+  return source
+    .is_valid_addition_for_capacity_inclusion(_input,
+                                              source
+                                                .delivery_in_range(_first_rank,
+                                                                   _last_rank),
+                                              _moved_jobs.begin(),
+                                              _moved_jobs.end(),
+                                              _first_rank,
+                                              _last_rank);
 }
 
 void IntraRelocate::apply() {
   auto relocate_job_rank = s_route[s_rank];
   s_route.erase(s_route.begin() + s_rank);
-  t_route.insert(t_route.begin() + t_rank, relocate_job_rank);
+  s_route.insert(t_route.begin() + t_rank, relocate_job_rank);
+
+  source.update_amounts(_input);
 }
 
 std::vector<Index> IntraRelocate::addition_candidates() const {

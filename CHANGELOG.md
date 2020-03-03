@@ -1,6 +1,59 @@
 # Changelog
 
-## [Unreleased]
+## [v1.6.0] - 2020-02-18
+
+### Added
+
+- Support for pickup and delivery tasks (#274)
+- `shipments` array in input (#274)
+- Use https for routing requests over port 443 (#289)
+- New local search operator for route exchange (#288)
+
+### Changed
+
+- Steps `type` in json output can also have value `pickup` and `delivery` (#274)
+- Extended range for valid priority values (#287)
+- Use `operator&&` for short-circuit evaluation (#293)
+- Earlier local search aborts based on incompatibilities (#281)
+- Travis script update (#301)
+
+### Fixed
+
+- Missing valid moves for intra Or-opt (#286)
+- Unwanted routing engine request with 1x1 custom matrix (#291)
+- Error on single-location `table` request (#295)
+
+## [v1.5.0] - 2019-10-14
+
+### Added
+
+- Support for mixing independent pickups and deliveries (#241)
+- `pickup` and `delivery` keys for `job` in input and for `route` and `summary` in output (#262)
+- `load` key at `step` level in output (#262)
+- `priority` key for jobs to gain some control on which jobs are unassigned (#246)
+- `HttpWrapper` class to factor code previously duplicated across routing wrappers (#224)
+
+### Changed
+
+- Speed up solving by 25% for CVRP and up to 30% for VRPTW benchmark instances (#255)
+- Update Travis configuration to use Ubuntu Bionic (#260)
+- Cut down validity checks time (#266)
+
+### Deprecated
+
+- `amount` key at `job` level in input and at `summary` and `route` level in output (#262)
+
+### Removed
+
+- Clustering heuristics for CVRP (#267)
+
+### Fixed
+
+- Implicit instantiation of undefined template error for macos g++ compiler (#231)
+- Parsing vehicle ids as `uint64_t` (#228)
+- `osrm::EngineConfig` initialization for use with recent `libosrm` versions (#259)
+
+## [v1.4.0] - 2019-03-26
 
 ### Added
 
@@ -28,8 +81,9 @@
 ### Fixed
 
 - Missing capacity check for initialization in parallel clustering heuristic (#198)
+- Segfault on job empty `time_windows` array (#221)
 
-## [v1.3.0]
+## [v1.3.0] - 2018-12-10
 
 ### Added
 
