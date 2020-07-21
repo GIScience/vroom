@@ -8,8 +8,6 @@ All rights reserved (see LICENSE).
 */
 #include <array>
 
-#include <boost/optional.hpp>
-
 #include "problems/cvrp/cvrp.h"
 #include "problems/tsp/tsp.h"
 #include "problems/vrp.h"
@@ -38,8 +36,7 @@ void Input::set_geometry(bool geometry) {
   _geometry = geometry;
 }
 
-void Input::set_routing(
-  std::unique_ptr<routing::Wrapper<Cost>> routing_wrapper) {
+void Input::set_routing(std::unique_ptr<routing::Wrapper> routing_wrapper) {
   _routing_wrapper = std::move(routing_wrapper);
 }
 
@@ -160,13 +157,13 @@ void Input::add_vehicle(const Vehicle& vehicle) {
   }
 
   // Check for time-windows.
-  _has_TW |= !vehicle.tw.is_default();
+  _has_TW = _has_TW || !vehicle.tw.is_default();
 
   bool has_start = current_v.has_start();
   bool has_end = current_v.has_end();
 
   if (has_start) {
-    auto& start_loc = current_v.start.get();
+    auto& start_loc = current_v.start.value();
 
     if (!start_loc.user_index()) {
       // Index of this start in the matrix was not specified upon
@@ -191,7 +188,7 @@ void Input::add_vehicle(const Vehicle& vehicle) {
   }
 
   if (has_end) {
-    auto& end_loc = current_v.end.get();
+    auto& end_loc = current_v.end.value();
 
     if (!end_loc.user_index()) {
       // Index of this end in the matrix was not specified upon
@@ -285,12 +282,12 @@ void Input::check_cost_bound() const {
     if (v.has_start()) {
       start_bound =
         utils::add_without_overflow(start_bound,
-                                    max_cost_per_line[v.start.get().index()]);
+                                    max_cost_per_line[v.start.value().index()]);
     }
     if (v.has_end()) {
       end_bound =
         utils::add_without_overflow(end_bound,
-                                    max_cost_per_column[v.end.get().index()]);
+                                    max_cost_per_column[v.end.value().index()]);
     }
   }
 

@@ -1,5 +1,32 @@
 # Changelog
 
+## [v1.7.0] - 2020-07-08
+
+### Added
+
+- Support for (multiple) driver breaks at vehicle level (#186)
+- Dependency to `libasio`, replacing boost/asio (#325)
+- More details on features and workflow in README (#335)
+
+### Changed
+
+- Switch to C++17 (#311)
+- Use `std::optional` and drop dependency to boost/optional (#312)
+- Refactor routing wrapper classes (#320)
+
+### Deprecated
+
+- Steps `job` key is replaced by `id` for consistency with breaks
+
+### Removed
+
+- Drop boost dependency (#325)
+
+### Fixed
+
+- Erroneous call to TSP code with amount-less shipments (#333)
+- Missing propagation of ealiest/latest dates in corner case (#339)
+
 ## [v1.6.0] - 2020-02-18
 
 ### Added
@@ -266,4 +293,3 @@
   solution and execution details.
 - Optional ready-to-use detailed route.
 - Optional use of euclidean distance for matrix computation.
-

@@ -17,8 +17,6 @@ All rights reserved (see LICENSE).
 #include <unordered_set>
 #include <vector>
 
-#include <boost/optional.hpp>
-
 namespace vroom {
 
 // To easily differentiate variable types.
@@ -35,7 +33,7 @@ using Priority = uint32_t;
 
 // Type helpers.
 using Coordinates = std::array<Coordinate, 2>;
-using OptionalCoordinates = boost::optional<Coordinates>;
+using OptionalCoordinates = std::optional<Coordinates>;
 using Skills = std::unordered_set<Skill>;
 
 // Setting max value would cause trouble with further additions.
@@ -69,7 +67,7 @@ enum class ERROR { INTERNAL, INPUT, ROUTING };
 enum class JOB_TYPE { SINGLE, PICKUP, DELIVERY };
 
 // Available location status.
-enum class STEP_TYPE { START, JOB, END };
+enum class STEP_TYPE { START, JOB, BREAK, END };
 
 // Heuristic options.
 enum class HEURISTIC { BASIC, DYNAMIC };
